@@ -908,7 +908,7 @@ def generate_video(
             stroke_width=params.stroke_width,
             method='caption',  # Use caption method for better text wrapping
             size=size,
-            align='center',  # Center-align the text
+            # align='center',  # Removed - not supported in MoviePy 2.2.1
             # interline=interline,
         )
         duration = subtitle_item[0][1] - subtitle_item[0][0]

@@ -1,106 +1,214 @@
+# MoneyPrinterTurbo - Enhanced Fork
 
-<h1 align="left">MoneyPrinterTurbo - Enhanced Fork</h1>
+This is an enhanced version of [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) with significant improvements to subtitle highlighting and TTS capabilities. Full credit goes to the original author and contributors.
 
+## Example Videos
 
+See the enhanced features in action:
 
-## 🎬 Example Output Videos
-
-See MoneyPrinterTurbo in action! These videos showcase the enhanced subtitle highlighting and semantic video selection features:
-
-<div align="center">
-
-### 📺 Full-Length Video Example
+**Full-Length Video Example**  
 [![MoneyPrinterTurbo Example Video](https://img.youtube.com/vi/yXc07ROgj80/maxresdefault.jpg)](https://www.youtube.com/watch?v=yXc07ROgj80)
 
-**[🎥 Watch Full Video →](https://www.youtube.com/watch?v=yXc07ROgj80)**
-
----
-
-### 📱 YouTube Shorts Example  
+**YouTube Shorts Example**  
 [![MoneyPrinterTurbo Shorts Example](https://img.youtube.com/vi/JBAuXpVHt40/maxresdefault.jpg)](https://www.youtube.com/shorts/JBAuXpVHt40)
 
-**[🎥 Watch Short →](https://www.youtube.com/shorts/JBAuXpVHt40)**
+## What's Different in This Fork
 
-</div>
+### Enhanced Subtitle System
+- **Word-by-word highlighting**: Each word lights up exactly when spoken, making videos more engaging
+- **Real-time synchronization**: Perfect timing with TTS word boundaries
+- **Multi-line support**: Works with wrapped text and complex subtitle layouts
+- **Customizable colors**: Configure highlight colors through the web interface
 
-*These videos demonstrate the enhanced word-by-word subtitle highlighting, center-aligned text, intelligent video-text matching, and professional-quality output that MoneyPrinterTurbo can generate automatically.*
+### Better Video-Text Matching
+- **Semantic search**: Analyzes script content to find relevant video clips instead of random selection
+- **Text similarity**: Matches video content to script meaning for better relevance
+- **Thumbnail analysis**: Optional video thumbnail similarity for sources like Pexels (can be combined with text analysis)
 
----
+### Open-Source TTS with Voice Cloning
+This fork includes **Chatterbox TTS** - a completely free alternative to Azure TTS that runs locally on your machine.
 
-## Original Repo Credit
+**Key advantages:**
+- **No API costs**: Completely free to use, no rate limits
+- **Voice cloning**: Clone any voice using 10-60 seconds of reference audio
+- **Better word timing**: Uses WhisperX for more accurate word-level timestamps than Azure TTS
+- **Local processing**: No internet required after initial setup
+- **GPU support**: Faster processing on compatible hardware, falls back to CPU automatically
 
-This is an **enhanced fork** of the amazing [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) project. Check out the original repo and **full credit goes to the original author and contributors**. This fork adds advanced subtitle highlighting features while maintaining all the original functionality.
+**How it works:**
+1. Add reference audio files to the `reference_audio/` folder
+2. Select "Chatterbox TTS" in the web interface
+3. Choose your cloned voice or use the default voice
+4. Generate videos with your custom voice
 
----
+## Installation
 
-## New Features in This Fork
-
-### Word-by-Word Subtitle Highlighting
-
-This enhanced version introduces **intelligent word-level highlighting** in subtitles, making videos more engaging and easier to follow:
-
-- **Real-time Word Highlighting**: Each word is highlihted exactly when it's being spoken
-- **Normal Text Color**: Non-spoken words remain in the original subtitle color 
-- **Microsoft TTS2 Integration**: Perfect synchronization with Microsoft's Text-to-Speech timing
-- **Customizable Colors**: Configure highlight colors through the web interface
-- **Multi-line Support**: Works seamlessly with wrapped text and multiple subtitle lines
-
-### Enhanced Video-Text Alignment 
-
-- **Text-based Similarity**: Current semantic search analyzes script content to match relevant video clips
-- **Video-Thumbnail Similarity**: Current semantic search we can enable video thubnail(of video content) similarity for video sources like 'Pexels'. This when enabled is combined with text simialrity with 30% text + 70% thumbnail cimialrity with text produce the best results so far  
-- **Better than Sequential**: No manual effort required (unlike sequential mode)
-- **Better than Random**: Much more relevant than random video selection
-
-**Future Roadmap:**
-- **Video Content Analysis**: AI-powered analysis of actual video content for semantic matching
-- **WhisperX Integration**: Enhanced subtitle timing with WhisperX for even more precise word highlighting, this will also help us get rid of Microsoft TTS for precise word boundaries.
-
-## Installation & Setup
-
-### Prerequisites
-
-- Python 3.11 or higher
-- Git
-- Conda (recommended) or Python virtual environment
-
-### Quick Start
-
-1. **Clone the repository:**
+**Quick Start (Recommended):**
 ```bash
-git clone https://github.com/[YOUR_USERNAME]/MoneyPrinterTurbo.git
+# 1. Clone and setup
+git clone https://github.com/harry0703/MoneyPrinterTurbo.git
 cd MoneyPrinterTurbo
+conda env create -f environment.yml
+conda activate MoneyPrinterTurbo
+
+# 2. Install Chatterbox TTS (voice cloning)
+git clone https://github.com/resemble-ai/chatterbox.git
+cd chatterbox && pip install -e . && cd ..
+
+# 3. Run the application
+./webui.sh
 ```
 
-2. **Create and activate conda environment:**
+**🚀 Usage:**
 ```bash
+# Web Interface (Recommended)
+./webui.sh                    # Linux/MacOS with CUDA setup
+webui.bat                     # Windows with CUDA setup
+
+# API Server
+./api.sh                      # Linux/MacOS API server with CUDA
+python main.py                # Direct API (missing CUDA environment)
+
+# Manual Environment Setup (if needed)
+source ./setup_cuda_env.sh    # Load CUDA libraries manually
+```
+
+The web interface opens at `http://localhost:8501`
+
+**Alternative Installation Methods:**
+
+**Method 1: Complete Conda Environment (Recommended)**
+```bash
+conda env create -f environment.yml
+conda activate MoneyPrinterTurbo
+./webui.sh
+```
+
+**Method 2: Manual CUDA Installation**
+```bash
+# Create basic environment
 conda create -n MoneyPrinterTurbo python=3.11
 conda activate MoneyPrinterTurbo
+
+# Install all CUDA libraries
+./install_cuda.sh
 ```
 
-3. **Install dependencies:**
+**Method 3: Pip-only Installation (Advanced)**
 ```bash
-# Install all dependencies (includes optimization libraries for caching & performance)
 pip install -r requirements.txt
+pip install -r requirements-cuda.txt
+pip install nvidia-cudnn-cu12==8.9.2.26 --force-reinstall --no-deps
 ```
 
-####   Alternative: One-liner Environment Setup
+## CUDA/GPU Support
 
+This project includes **complete CUDA 12.x support** with extensive GPU acceleration:
+
+**🔧 CUDA Libraries Included (17 packages):**
+- **PyTorch Ecosystem**: `torch`, `torchaudio`, `torchvision`, `pytorch-lightning`
+- **CUDA Core**: `cuda-nvrtc`, `cuda-version`, `nvidia-cuda-runtime-cu12`
+- **cuDNN**: Dual installation - cuDNN 9.x (primary) + cuDNN 8.x (compatibility)
+- **NVIDIA Libraries**: `cublas`, `cufft`, `curand`, `cusolver`, `cusparse`, `nccl`, `nvtx`
+- **GPU Acceleration**: Automatic GPU detection with CPU fallback
+
+**📦 Installation Options:**
+1. **Automatic**: Use `conda env create -f environment.yml` (includes everything)
+2. **Manual**: Run `./install_cuda.sh` for step-by-step installation
+3. **Custom**: Use `requirements-cuda.txt` for pip-only setup
+
+**🚀 GPU Features:**
+- Chatterbox TTS with GPU acceleration
+- WhisperX with CUDA support for faster transcription
+- Automatic environment setup via `setup_cuda_env.sh`
+- Cross-platform CUDA library path management
+
+## Features
+
+## Chatterbox TTS Setup
+
+**Note**: Chatterbox TTS requires git-based installation (see Installation section above).
+
+### Basic Usage
+1. Go to "Audio Settings" in the web interface
+2. Select "Chatterbox TTS (Open Source)" from the dropdown
+3. Choose "Default Voice" for the built-in voice
+
+### Voice Cloning
+1. Create the reference audio folder: `mkdir reference_audio`
+2. Add audio files (.wav, .mp3, .flac, .m4a) to this folder
+3. Use 10-60 seconds of clear, single-speaker audio
+4. File names become voice names (e.g., `narrator.wav` becomes "narrator" voice)
+5. Restart the web interface to see new voices
+
+**Example folder structure:**
+```
+reference_audio/
+├── narrator.wav        # Professional narrator
+├── british.mp3         # British accent
+└── casual.flac         # Casual style
+```
+
+### Performance Options
+
+**Default (CPU mode)** - Compatible with all systems:
 ```bash
-conda env create -f MoneyPrinterTurbo_environment.yml 
-conda activate MoneyPrinterTurbo
+./webui.sh
 ```
 
-4. **Run the web interface:**
+**GPU mode** - 3-5x faster on compatible systems:
 ```bash
-# On Linux/MacOS
-sh webui.sh
-
-# On Windows
-webui.bat
+export CHATTERBOX_DEVICE=cuda
+./webui.sh
 ```
 
-The web interface will automatically open in your browser at `http://localhost:7860`
+**Notes:**
+- First run downloads ~1-2GB of models
+- CPU mode is slower but works everywhere
+- GPU mode requires compatible CUDA setup
+- System automatically falls back to CPU if GPU fails
 
+## TTS Comparison
 
----
+| Feature | Azure TTS | SiliconFlow | Chatterbox TTS |
+|---------|-----------|-------------|----------------|
+| Cost | Paid API | Paid API | Free |
+| Internet | Required | Required | Local only |
+| Voice Cloning | No | No | Yes |
+| Word Timing | Good | Basic | Superior |
+| Rate Limits | Yes | Yes | None |
+
+## Troubleshooting
+
+**Chatterbox TTS issues:**
+- CUDA errors: The system automatically falls back to CPU mode
+- Force CPU mode: `export CHATTERBOX_DEVICE=cpu`
+- Voice cloning problems: Ensure audio is clear and single-speaker
+- New voices not appearing: Restart the web interface
+
+**CUDA/cuDNN compatibility issues:**
+- **Error**: `libcudnn_ops_infer.so.8: cannot open shared object file`
+- **Cause**: Missing cuDNN 8.x libraries required by some packages
+- **Solution**: Automatically handled by startup scripts (`setup_cuda_env.sh`)
+- **Manual fix**: `pip install nvidia-cudnn-cu12==8.9.2.26`
+
+**General issues:**
+- Check that all dependencies are installed correctly
+- Ensure your Python environment is activated
+- For GPU issues, CPU mode provides a reliable fallback
+
+**Advanced CUDA Setup:**
+The project includes automatic CUDA environment configuration:
+- `setup_cuda_env.sh` - Shared CUDA environment setup
+- `webui.sh` - Web interface with CUDA support
+- `api.sh` - API server with CUDA support  
+- `webui.bat` - Windows version with CUDA support
+
+If you encounter CUDA library issues, the startup scripts automatically:
+1. Add cuDNN library paths to `LD_LIBRARY_PATH` (Linux) or `PATH` (Windows)
+2. Set optimal CUDA memory allocation settings
+3. Suppress unnecessary warnings
+
+## Original Project
+
+This enhanced fork maintains full compatibility with the original MoneyPrinterTurbo while adding these new features. Check out the [original repository](https://github.com/harry0703/MoneyPrinterTurbo) for the base project documentation and additional features.

@@ -5,15 +5,55 @@ from datetime import datetime
 from typing import Union
 from xml.sax.saxutils import unescape
 
+# Suppress warnings and handle CUDA library conflicts
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pyannote")
+warnings.filterwarnings("ignore", message=".*audio is shorter than 30s.*")
+os.environ["PYANNOTE_CACHE"] = "/tmp/pyannote"
+# Handle CUDA library conflicts gracefully
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"  # Reduce CUDA memory issues
+# Set environment variable to handle cuDNN version mismatches
+os.environ["CUDNN_LOGINFO_DBG"] = "0"  # Suppress cuDNN debug info
+
 import edge_tts
 import requests
-from edge_tts import SubMaker, submaker
-from edge_tts.submaker import mktimestamp
+from edge_tts import SubMaker
+try:
+    from edge_tts.submaker import mktimestamp
+except ImportError:
+    # Fallback for newer edge_tts versions
+    def mktimestamp(offset):
+        return str(offset)
 from loguru import logger
 from moviepy.video.tools import subtitles
 
 from app.config import config
 from app.utils import utils
+
+# Import Chatterbox TTS and WhisperX if available
+try:
+    from chatterbox.tts import ChatterboxTTS
+    import whisperx
+    import torch
+    import torchaudio
+    CHATTERBOX_AVAILABLE = True
+    logger.info("Chatterbox TTS and WhisperX are available")
+except ImportError as e:
+    CHATTERBOX_AVAILABLE = False
+    logger.warning(f"Chatterbox TTS or WhisperX not available: {e}")
+
+# Global Chatterbox model instance
+chatterbox_model = None
+whisperx_model = None
+
+
+def ensure_submaker_compatibility(sub_maker):
+    """Ensure SubMaker has required attributes for compatibility with different edge_tts versions"""
+    if not hasattr(sub_maker, 'subs'):
+        sub_maker.subs = []
+    if not hasattr(sub_maker, 'offset'):
+        sub_maker.offset = []
+    return sub_maker
 
 
 def get_siliconflow_voices() -> list[str]:
@@ -40,6 +80,32 @@ def get_siliconflow_voices() -> list[str]:
         f"siliconflow:{model}:{voice}-{gender}"
         for model, voice, gender in voices_with_gender
     ]
+
+
+def get_chatterbox_voices() -> list[str]:
+    """
+    获取Chatterbox TTS的声音列表
+
+    Returns:
+        声音列表，格式为 ["chatterbox:default:Default Voice", "chatterbox:clone:Voice Clone", ...]
+    """
+    if not CHATTERBOX_AVAILABLE:
+        return []
+    
+    voices = [
+        "chatterbox:default:Default Voice-Neutral",
+        "chatterbox:clone:Voice Clone-Custom"
+    ]
+    
+    # Add reference audio files from reference_audio directory if available
+    reference_audio_dir = os.path.join(utils.root_dir(), "reference_audio")
+    if os.path.exists(reference_audio_dir):
+        for file in os.listdir(reference_audio_dir):
+            if file.lower().endswith(('.wav', '.mp3', '.flac', '.m4a')):
+                name = os.path.splitext(file)[0]
+                voices.append(f"chatterbox:clone:{name}-Custom")
+    
+    return voices
 
 
 def get_all_azure_voices(filter_locals=None) -> list[str]:
@@ -1077,6 +1143,11 @@ def is_siliconflow_voice(voice_name: str):
     return voice_name.startswith("siliconflow:")
 
 
+def is_chatterbox_voice(voice_name: str):
+    """检查是否是Chatterbox的声音"""
+    return voice_name.startswith("chatterbox:")
+
+
 def tts(
     text: str,
     voice_name: str,
@@ -1103,6 +1174,10 @@ def tts(
         else:
             logger.error(f"Invalid siliconflow voice name format: {voice_name}")
             return None
+    elif is_chatterbox_voice(voice_name):
+        # Chatterbox TTS with WhisperX timestamps
+        # 格式: chatterbox:type:name-Gender
+        return chatterbox_tts(text, voice_name, voice_rate, voice_file, voice_volume)
     return azure_tts_v1(text, voice_name, voice_rate, voice_file)
 
 
@@ -1128,15 +1203,14 @@ def azure_tts_v1(
 
             async def _do() -> SubMaker:
                 communicate = edge_tts.Communicate(text, voice_name, rate=rate_str)
-                sub_maker = edge_tts.SubMaker()
+                sub_maker = ensure_submaker_compatibility(edge_tts.SubMaker())
                 with open(voice_file, "wb") as file:
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             file.write(chunk["data"])
                         elif chunk["type"] == "WordBoundary":
-                            sub_maker.create_sub(
-                                (chunk["offset"], chunk["duration"]), chunk["text"]
-                            )
+                            sub_maker.subs.append(chunk["text"])
+                            sub_maker.offset.append((chunk["offset"], chunk["offset"] + chunk["duration"]))
                 return sub_maker
 
             sub_maker = asyncio.run(_do())
@@ -1215,7 +1289,7 @@ def siliconflow_tts(
                     f.write(response.content)
 
                 # 创建一个空的SubMaker对象
-                sub_maker = SubMaker()
+                sub_maker = ensure_submaker_compatibility(SubMaker())
 
                 # 获取音频文件的实际长度
                 try:
@@ -1289,6 +1363,205 @@ def siliconflow_tts(
     return None
 
 
+def chatterbox_tts(
+    text: str,
+    voice_name: str,
+    voice_rate: float,
+    voice_file: str,
+    voice_volume: float = 1.0,
+) -> Union[SubMaker, None]:
+    """
+    使用Chatterbox TTS + WhisperX生成语音和精确的单词时间戳
+
+    Args:
+        text: 要转换为语音的文本
+        voice_name: 声音名称，格式: "chatterbox:type:name-Gender"
+        voice_rate: 语音速度（暂不支持调整）
+        voice_file: 输出的音频文件路径
+        voice_volume: 语音音量（暂不支持调整）
+
+    Returns:
+        SubMaker对象或None
+    """
+    if not CHATTERBOX_AVAILABLE:
+        logger.error("Chatterbox TTS is not available. Please install chatterbox-tts and whisperx.")
+        return None
+
+    text = text.strip()
+    if not text:
+        logger.error("Text is empty")
+        return None
+
+    # 解析voice_name: chatterbox:type:name-Gender
+    parts = voice_name.split(":")
+    if len(parts) < 3:
+        logger.error(f"Invalid Chatterbox voice name format: {voice_name}")
+        return None
+
+    voice_type = parts[1]  # "default" or "clone"
+    voice_info = parts[2]  # "name-Gender"
+    voice_base_name = voice_info.split("-")[0]
+
+    # 获取设备 - Use CPU by default to avoid cuDNN version conflicts
+    # Set CHATTERBOX_DEVICE=cuda environment variable to force GPU usage
+    force_device = os.environ.get("CHATTERBOX_DEVICE", "cpu").lower()
+    if force_device == "cuda" and torch.cuda.is_available():
+        device = "cuda"
+        logger.info(f"Using GPU device: {device} (forced via CHATTERBOX_DEVICE)")
+    else:
+        device = "cpu"
+        logger.info(f"Using CPU device (safe mode - set CHATTERBOX_DEVICE=cuda to use GPU)")
+
+    global chatterbox_model, whisperx_model
+
+    try:
+        # 1. 加载Chatterbox TTS模型
+        if chatterbox_model is None:
+            logger.info("Loading Chatterbox TTS model...")
+            try:
+                chatterbox_model = ChatterboxTTS.from_pretrained(device=device)
+                logger.info("Chatterbox TTS model loaded successfully")
+            except Exception as e:
+                logger.error(f"Failed to load Chatterbox TTS model: {e}")
+                if device == "cuda":
+                    logger.info("Falling back to CPU mode...")
+                    device = "cpu"
+                    chatterbox_model = ChatterboxTTS.from_pretrained(device=device)
+                    logger.info("Chatterbox TTS model loaded successfully on CPU")
+                else:
+                    raise
+
+        # 2. 生成语音
+        logger.info(f"Generating speech with Chatterbox TTS, type: {voice_type}")
+        
+        audio_prompt_path = None
+        if voice_type == "clone" and voice_base_name != "Voice Clone":
+            # 查找参考音频文件
+            reference_audio_dir = os.path.join(utils.root_dir(), "reference_audio")
+            for ext in ['.wav', '.mp3', '.flac', '.m4a']:
+                potential_path = os.path.join(reference_audio_dir, voice_base_name + ext)
+                if os.path.exists(potential_path):
+                    audio_prompt_path = potential_path
+                    break
+            
+            if audio_prompt_path:
+                logger.info(f"Using voice cloning with reference: {audio_prompt_path}")
+            else:
+                logger.warning(f"Reference audio not found for {voice_base_name}, using default voice")
+
+        # 生成语音
+        if audio_prompt_path:
+            wav = chatterbox_model.generate(text, audio_prompt_path=audio_prompt_path)
+        else:
+            wav = chatterbox_model.generate(text)
+
+        # 保存为临时WAV文件
+        temp_wav_file = voice_file.replace('.mp3', '_temp.wav')
+        torchaudio.save(temp_wav_file, wav, 24000)
+
+        # 3. 使用WhisperX获取精确的单词时间戳
+        logger.info("Generating word timestamps with WhisperX")
+        
+        if whisperx_model is None:
+            logger.info("Loading WhisperX model...")
+            # Use appropriate compute type for CPU
+            compute_type = "int8" if device == "cpu" else "float16"
+            try:
+                whisperx_model = whisperx.load_model("base", device, compute_type=compute_type)
+                logger.info(f"WhisperX model loaded successfully on {device} with {compute_type}")
+            except Exception as e:
+                logger.error(f"Failed to load WhisperX model on {device}: {e}")
+                if device == "cuda":
+                    logger.info("Falling back to CPU for WhisperX...")
+                    device = "cpu"
+                    compute_type = "int8"
+                    whisperx_model = whisperx.load_model("base", device, compute_type=compute_type)
+                    logger.info(f"WhisperX model loaded successfully on CPU with {compute_type}")
+                else:
+                    raise
+
+        # 转录音频获取单词时间戳
+        audio = whisperx.load_audio(temp_wav_file)
+        result = whisperx_model.transcribe(audio, batch_size=16)
+
+        # 加载对齐模型
+        model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
+        result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+
+        # 4. 创建SubMaker并填充时间戳
+        sub_maker = ensure_submaker_compatibility(SubMaker())
+        
+        if "word_segments" in result and result["word_segments"]:
+            for segment in result["word_segments"]:
+                for word_info in segment.get("words", []):
+                    word = word_info.get("word", "").strip()
+                    start = word_info.get("start", 0)
+                    end = word_info.get("end", 0)
+                    
+                    if word:
+                        # 转换为100纳秒单位（与edge_tts兼容）
+                        start_100ns = int(start * 10000000)
+                        end_100ns = int(end * 10000000)
+                        duration_100ns = end_100ns - start_100ns
+                        
+                        sub_maker.subs.append(word)
+                        sub_maker.offset.append((start_100ns, start_100ns + duration_100ns))
+
+        # 如果没有获取到单词级时间戳，回退到句子级
+        if not sub_maker.subs:
+            logger.warning("No word-level timestamps found, falling back to sentence-level")
+            sentences = utils.split_string_by_punctuations(text)
+            audio_duration = len(wav[0]) / 24000  # 采样率24000Hz
+            
+            if sentences:
+                total_chars = sum(len(s) for s in sentences)
+                char_duration = (audio_duration * 10000000) / total_chars if total_chars > 0 else 0
+                
+                current_offset = 0
+                for sentence in sentences:
+                    if not sentence.strip():
+                        continue
+                    
+                    sentence_chars = len(sentence)
+                    sentence_duration = int(sentence_chars * char_duration)
+                    
+                    sub_maker.subs.append(sentence.strip())
+                    sub_maker.offset.append((current_offset, current_offset + sentence_duration))
+                    current_offset += sentence_duration
+            else:
+                # 最后的回退方案
+                audio_duration_100ns = int(audio_duration * 10000000)
+                sub_maker.subs = [text]
+                sub_maker.offset = [(0, audio_duration_100ns)]
+
+        # 5. 转换音频格式为MP3（如果需要）
+        if voice_file.endswith('.mp3'):
+            try:
+                from moviepy import AudioFileClip
+                audio_clip = AudioFileClip(temp_wav_file)
+                audio_clip.write_audiofile(voice_file, logger=None)
+                audio_clip.close()
+                os.remove(temp_wav_file)  # 删除临时WAV文件
+            except Exception as e:
+                logger.warning(f"Failed to convert to MP3, keeping WAV format: {e}")
+                os.rename(temp_wav_file, voice_file.replace('.mp3', '.wav'))
+        else:
+            os.rename(temp_wav_file, voice_file)
+
+        logger.success(f"Chatterbox TTS completed with {len(sub_maker.subs)} word/sentence timestamps")
+        logger.info(f"Output file: {voice_file}")
+        
+        return sub_maker
+
+    except Exception as e:
+        logger.error(f"Chatterbox TTS failed: {str(e)}")
+        # 清理临时文件
+        temp_wav_file = voice_file.replace('.mp3', '_temp.wav')
+        if os.path.exists(temp_wav_file):
+            os.remove(temp_wav_file)
+        return None
+
+
 def azure_tts_v2(text: str, voice_name: str, voice_file: str) -> Union[SubMaker, None]:
     voice_name = is_azure_v2_voice(voice_name)
     if not voice_name:
@@ -1318,7 +1591,7 @@ def azure_tts_v2(text: str, voice_name: str, voice_file: str) -> Union[SubMaker,
 
             import azure.cognitiveservices.speech as speechsdk
 
-            sub_maker = SubMaker()
+            sub_maker = ensure_submaker_compatibility(SubMaker())
 
             def speech_synthesizer_word_boundary_cb(evt: speechsdk.SessionEventArgs):
                 # print('WordBoundary event:')
@@ -1396,7 +1669,7 @@ def _format_text(text: str) -> str:
     return text
 
 
-def create_subtitle(sub_maker: submaker.SubMaker, text: str, subtitle_file: str):
+def create_subtitle(sub_maker: SubMaker, text: str, subtitle_file: str):
     """
     优化字幕文件
     1. 将字幕文件按照标点符号分割成多行
@@ -1486,7 +1759,7 @@ def create_subtitle(sub_maker: submaker.SubMaker, text: str, subtitle_file: str)
         logger.error(f"failed, error: {str(e)}")
 
 
-def get_audio_duration(sub_maker: submaker.SubMaker):
+def get_audio_duration(sub_maker: SubMaker):
     """
     获取音频时长
     """

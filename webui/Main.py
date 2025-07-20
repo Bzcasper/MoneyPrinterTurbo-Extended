@@ -850,6 +850,7 @@ with middle_panel:
             ("azure-tts-v1", "Azure TTS V1"),
             ("azure-tts-v2", "Azure TTS V2"),
             ("siliconflow", "SiliconFlow TTS"),
+            ("chatterbox", "Chatterbox TTS (Open Source)"),
         ]
 
         # 获取保存的TTS服务器，默认为v1
@@ -876,6 +877,9 @@ with middle_panel:
         if selected_tts_server == "siliconflow":
             # 获取硅基流动的声音列表
             filtered_voices = voice.get_siliconflow_voices()
+        elif selected_tts_server == "chatterbox":
+            # 获取Chatterbox的声音列表
+            filtered_voices = voice.get_chatterbox_voices()
         else:
             # 获取Azure的声音列表
             all_voices = voice.get_all_azure_voices(filter_locals=None)
@@ -939,6 +943,52 @@ with middle_panel:
             )
             params.voice_name = ""
             config.ui["voice_name"] = ""
+
+        # Chatterbox TTS特殊设置
+        if selected_tts_server == "chatterbox" and friendly_names:
+            st.write("---")
+            st.write("**Chatterbox TTS Settings**")
+            
+            # 显示当前选择的声音类型
+            if voice_name.startswith("chatterbox:default:"):
+                st.info("🎙️ Using default Chatterbox voice")
+            elif voice_name.startswith("chatterbox:clone:"):
+                voice_base_name = voice_name.split(":")[-1].split("-")[0]
+                if voice_base_name == "Voice Clone":
+                    st.info("🎯 Voice cloning mode - add reference audio files to reference_audio/ folder")
+                else:
+                    st.success(f"🎭 Voice cloning with: {voice_base_name}")
+            
+            # 显示参考音频文件夹信息
+            import os
+            from app.utils import utils
+            reference_audio_dir = os.path.join(utils.root_dir(), "reference_audio")
+            
+            if not os.path.exists(reference_audio_dir):
+                with st.expander("📁 Voice Cloning Setup", expanded=False):
+                    st.warning("Reference audio folder not found. Create it to enable voice cloning:")
+                    st.code(f"mkdir {reference_audio_dir}")
+                    st.info("Add your reference audio files (.wav, .mp3, .flac, .m4a) to this folder for voice cloning.")
+            else:
+                audio_files = [f for f in os.listdir(reference_audio_dir) 
+                             if f.lower().endswith(('.wav', '.mp3', '.flac', '.m4a'))]
+                
+                with st.expander(f"📁 Voice Cloning Files ({len(audio_files)} found)", expanded=False):
+                    if audio_files:
+                        st.success(f"Found {len(audio_files)} reference audio files:")
+                        for file in audio_files:
+                            st.write(f"• {file}")
+                    else:
+                        st.info("No reference audio files found. Add .wav, .mp3, .flac, or .m4a files for voice cloning.")
+            
+            # 性能提示
+            with st.expander("⚡ Performance Info", expanded=False):
+                st.info("**Chatterbox TTS Features:**")
+                st.write("• 🚀 **Open Source**: No API costs or limits")
+                st.write("• 🎯 **Precise Timestamps**: WhisperX for word-level accuracy")
+                st.write("• 🎭 **Voice Cloning**: Clone any voice with reference audio")
+                st.write("• 💻 **Local Processing**: No internet required after setup")
+                st.write("• 🔄 **First Run**: Downloads models (~1-2GB)")
 
         # 只有在有声音可选时才显示试听按钮
         if friendly_names and st.button(tr("Play Voice")):

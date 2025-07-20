@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # If you could not download the model from the official site, you can use the mirror site.
 # Just remove the comment of the following line .
 # 如果你无法从官方网站下载模型，你可以使用镜像网站。
@@ -5,7 +7,7 @@
 
 # export HF_ENDPOINT=https://hf-mirror.com
 
-# Suppress torch._classes warning without breaking functionality
-export PYTHONWARNINGS="ignore::UserWarning:streamlit"
+# Set up CUDA/cuDNN environment
+source "$(dirname "$0")/setup_cuda_env.sh"
 
 streamlit run ./webui/Main.py --browser.serverAddress="0.0.0.0" --server.enableCORS=True --browser.gatherUsageStats=False
