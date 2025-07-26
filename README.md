@@ -116,8 +116,6 @@ This project includes **complete CUDA 12.x support** with extensive GPU accelera
 1. **Automatic**: Use `conda env create -f environment.yml` (includes everything)
 2. **Manual**: Run `./install_cuda.sh` for step-by-step installation
 3. **Custom**: Use `requirements-cuda.txt` for pip-only setup
-
-**🚀 GPU Features:**
 - Chatterbox TTS with GPU acceleration
 - WhisperX with CUDA support for faster transcription
 - Automatic environment setup via `setup_cuda_env.sh`
@@ -181,10 +179,12 @@ export CHATTERBOX_DEVICE=cuda
 ## Troubleshooting
 
 **Chatterbox TTS issues:**
-- CUDA errors: The system automatically falls back to CPU mode
-- Force CPU mode: `export CHATTERBOX_DEVICE=cpu`
-- Voice cloning problems: Ensure audio is clear and single-speaker
-- New voices not appearing: Restart the web interface
+- **Garbled audio**: See `CHATTERBOX_TTS_GUIDE.md` for detailed solutions
+- **CUDA errors**: The system automatically falls back to CPU mode
+- **Force CPU mode**: `export CHATTERBOX_DEVICE=cpu`
+- **Voice cloning problems**: Ensure audio is clear and single-speaker
+- **New voices not appearing**: Restart the web interface
+- **Long text issues**: Automatically handled with text preprocessing and chunking
 
 **CUDA/cuDNN compatibility issues:**
 - **Error**: `libcudnn_ops_infer.so.8: cannot open shared object file`

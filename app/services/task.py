@@ -89,6 +89,12 @@ def generate_audio(task_id, params, video_script):
         )
         return None, None, None
 
+    # Get the actual audio file path (might be .wav if MP3 conversion failed)
+    actual_audio_file = getattr(sub_maker, '_actual_audio_file', audio_file)
+    if actual_audio_file != audio_file:
+        logger.info(f"Audio file saved as: {actual_audio_file} (instead of {audio_file})")
+        audio_file = actual_audio_file
+
     audio_duration = math.ceil(voice.get_audio_duration(sub_maker))
     return audio_file, audio_duration, sub_maker
 
@@ -101,11 +107,23 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
     subtitle_provider = config.app.get("subtitle_provider", "edge").strip().lower()
     logger.info(f"\n\n## generating subtitle, provider: {subtitle_provider}")
 
+    # Check if Chatterbox TTS was used by examining the voice name
+    is_chatterbox = voice.is_chatterbox_voice(params.voice_name)
+    
     subtitle_fallback = False
     if subtitle_provider == "edge":
-        voice.create_subtitle(
-            text=video_script, sub_maker=sub_maker, subtitle_file=subtitle_path
-        )
+        if is_chatterbox and sub_maker and sub_maker.subs:
+            # Use specialized Chatterbox subtitle function for word-level timestamps
+            logger.info("Using Chatterbox-optimized subtitle generation")
+            voice.create_chatterbox_subtitle(
+                sub_maker=sub_maker, text=video_script, subtitle_file=subtitle_path
+            )
+        else:
+            # Use standard subtitle function for Azure TTS
+            voice.create_subtitle(
+                text=video_script, sub_maker=sub_maker, subtitle_file=subtitle_path
+            )
+        
         if not os.path.exists(subtitle_path):
             subtitle_fallback = True
             logger.warning("subtitle file not found, fallback to whisper")

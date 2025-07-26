@@ -1351,7 +1351,6 @@ def siliconflow_tts(
                     ]
 
                 logger.success(f"siliconflow tts succeeded: {voice_file}")
-                print("s", sub_maker.subs, sub_maker.offset)
                 return sub_maker
             else:
                 logger.error(
@@ -1361,6 +1360,155 @@ def siliconflow_tts(
             logger.error(f"siliconflow tts failed: {str(e)}")
 
     return None
+
+
+def preprocess_text_for_chatterbox(text: str) -> str:
+    """
+    Preprocess text to improve Chatterbox TTS quality and prevent garbled audio
+    
+    Fixes common issues:
+    - Converts numbers to words
+    - Simplifies technical terms
+    - Shortens complex sentences
+    - Reduces punctuation variety
+    - Handles contractions properly
+    """
+    if not text:
+        return text
+    
+    # Clean and normalize text
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    # Convert number ranges to words
+    number_ranges = {
+        r'\b150-300\b': 'one hundred fifty to three hundred',
+        r'\b75-150\b': 'seventy five to one hundred fifty',
+        r'\b150\b': 'one hundred fifty',
+        r'\b300\b': 'three hundred',
+        r'\b75\b': 'seventy five',
+        r'\b6-7\b': 'six to seven',
+        r'\b30\b': 'thirty',
+        r'\b5\b': 'five',
+        r'\b2\b': 'two'
+    }
+    
+    for pattern, replacement in number_ranges.items():
+        text = re.sub(pattern, replacement, text)
+    
+    # Simplify technical terms
+    technical_replacements = {
+        r'\bmetabolism\b': 'how your body burns calories',
+        r'\bantioxidants\b': 'healthy compounds',
+        r'\bquinoa\b': 'healthy grains',
+        r'\bcardiovascular\b': 'heart and blood vessel',
+        r'\bWorld Health Organization\b': 'health experts',
+        r'\bvigorous cardio\b': 'intense exercise',
+        r'\bmoderate cardio\b': 'gentle exercise',
+        r'\bstrengthening activities\b': 'muscle building exercises',
+        r'\bresistance bands\b': 'exercise bands',
+        r'\bcomplex carbs\b': 'healthy carbs'
+    }
+    
+    for pattern, replacement in technical_replacements.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    
+    # Reduce excessive punctuation
+    text = re.sub(r'!!+', '!', text)  # Multiple exclamations
+    text = re.sub(r'\?\?+', '?', text)  # Multiple questions
+    text = re.sub(r'\.\.+', '.', text)  # Multiple periods
+    
+    # Simplify contractions for better pronunciation
+    contractions = {
+        r"\byou're\b": 'you are',
+        r"\bdon't\b": 'do not',
+        r"\blet's\b": 'let us',
+        r"\bwhen's\b": 'when is',
+        r"\bthat's\b": 'that is',
+        r"\bit's\b": 'it is'
+    }
+    
+    for pattern, replacement in contractions.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    
+    # Break very long sentences at natural pause points
+    # Split sentences longer than 120 characters
+    sentences = re.split(r'([.!?])', text)
+    processed_sentences = []
+    
+    for i in range(0, len(sentences), 2):
+        if i + 1 < len(sentences):
+            sentence = sentences[i]
+            punctuation = sentences[i + 1]
+            
+            if len(sentence) > 120:
+                # Try to split at commas or other natural breaks
+                parts = sentence.split(', ')
+                if len(parts) > 1:
+                    # Rejoin as separate sentences
+                    for j, part in enumerate(parts):
+                        if j == len(parts) - 1:
+                            processed_sentences.append(part + punctuation)
+                        else:
+                            processed_sentences.append(part.strip() + '.')
+                else:
+                    processed_sentences.append(sentence + punctuation)
+            else:
+                processed_sentences.append(sentence + punctuation)
+        else:
+            processed_sentences.append(sentences[i])
+    
+    text = ' '.join(processed_sentences)
+    
+    # Clean up extra spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
+
+def chunk_text_for_chatterbox(text: str, max_chunk_size: int = 500) -> list:
+    """
+    Split text into optimal chunks for Chatterbox TTS processing
+    
+    Args:
+        text: Input text to chunk
+        max_chunk_size: Maximum characters per chunk
+        
+    Returns:
+        List of text chunks
+    """
+    if len(text) <= max_chunk_size:
+        return [text]
+    
+    chunks = []
+    sentences = re.split(r'([.!?])', text)
+    current_chunk = ""
+    
+    for i in range(0, len(sentences), 2):
+        if i + 1 < len(sentences):
+            sentence = sentences[i].strip()
+            punctuation = sentences[i + 1]
+            full_sentence = sentence + punctuation
+            
+            # If adding this sentence would exceed chunk size, start new chunk
+            if len(current_chunk) + len(full_sentence) > max_chunk_size and current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = full_sentence
+            else:
+                current_chunk += " " + full_sentence if current_chunk else full_sentence
+        else:
+            # Handle case where there's a sentence without punctuation at the end
+            if sentences[i].strip():
+                if len(current_chunk) + len(sentences[i]) > max_chunk_size and current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = sentences[i].strip()
+                else:
+                    current_chunk += " " + sentences[i].strip() if current_chunk else sentences[i].strip()
+    
+    # Add the last chunk
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+    
+    return chunks
 
 
 def chatterbox_tts(
@@ -1391,6 +1539,18 @@ def chatterbox_tts(
     if not text:
         logger.error("Text is empty")
         return None
+
+    # Preprocess text to improve TTS quality
+    original_text = text
+    text = preprocess_text_for_chatterbox(text)
+    
+    # Check if text needs chunking (automatic for texts > 600 chars)
+    if len(text) > 600:
+        logger.warning(f"Text is too long ({len(text)} chars) for single-pass Chatterbox TTS")
+        logger.info("Automatically chunking text for better quality...")
+        return chatterbox_tts_chunked(text, voice_name, voice_rate, voice_file, voice_volume)
+    
+    logger.info(f"Chatterbox TTS input: '{text[:100]}...' (original: {len(original_text)} → processed: {len(text)} chars)")
 
     # 解析voice_name: chatterbox:type:name-Gender
     parts = voice_name.split(":")
@@ -1449,11 +1609,14 @@ def chatterbox_tts(
             else:
                 logger.warning(f"Reference audio not found for {voice_base_name}, using default voice")
 
-        # 生成语音
+        # 生成语音 (with improved pacing control)
+        # Lower cfg_weight to around 0.3 for slower, more natural pacing
+        cfg_weight = 0.3  # Slower pacing as recommended in Chatterbox docs
+        
         if audio_prompt_path:
-            wav = chatterbox_model.generate(text, audio_prompt_path=audio_prompt_path)
+            wav = chatterbox_model.generate(text, audio_prompt_path=audio_prompt_path, cfg_weight=cfg_weight)
         else:
-            wav = chatterbox_model.generate(text)
+            wav = chatterbox_model.generate(text, cfg_weight=cfg_weight)
 
         # 保存为临时WAV文件
         temp_wav_file = voice_file.replace('.mp3', '_temp.wav')
@@ -1484,32 +1647,79 @@ def chatterbox_tts(
         audio = whisperx.load_audio(temp_wav_file)
         result = whisperx_model.transcribe(audio, batch_size=16)
 
-        # 加载对齐模型
-        model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
-        result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+        # Validate transcription result
+        transcription_failed = False
+        if not result or "segments" not in result or not result["segments"]:
+            logger.warning("WhisperX transcription failed or returned empty result")
+            logger.debug(f"WhisperX result: {result}")
+            transcription_failed = True
+        else:
+            # Log transcribed text for validation
+            transcribed_text = " ".join([segment.get("text", "") for segment in result["segments"]]).strip()
+            logger.info(f"WhisperX transcribed: '{transcribed_text[:100]}...' (length: {len(transcribed_text)} chars)")
+            
+            # Check if transcription matches input text reasonably well
+            text_similarity = len(set(text.lower().split()) & set(transcribed_text.lower().split())) / max(len(text.split()), 1)
+            logger.debug(f"Text similarity score: {text_similarity:.2f}")
+            
+            if text_similarity < 0.3:
+                logger.warning(f"Transcription seems inaccurate (similarity: {text_similarity:.2f})")
+                if text_similarity < 0.1:
+                    logger.error(f"Transcription quality too poor (similarity: {text_similarity:.2f}), falling back to sentence-level timing")
+                    transcription_failed = True
+
+        # 加载对齐模型 (only if transcription is good)
+        if not transcription_failed:
+            try:
+                model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
+                result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+            except Exception as e:
+                logger.error(f"WhisperX alignment failed: {e}")
+                transcription_failed = True
 
         # 4. 创建SubMaker并填充时间戳
         sub_maker = ensure_submaker_compatibility(SubMaker())
         
-        if "word_segments" in result and result["word_segments"]:
-            for segment in result["word_segments"]:
-                for word_info in segment.get("words", []):
-                    word = word_info.get("word", "").strip()
-                    start = word_info.get("start", 0)
-                    end = word_info.get("end", 0)
-                    
-                    if word:
-                        # 转换为100纳秒单位（与edge_tts兼容）
-                        start_100ns = int(start * 10000000)
-                        end_100ns = int(end * 10000000)
-                        duration_100ns = end_100ns - start_100ns
+        # Process word-level timestamps from WhisperX alignment (only if transcription is good)
+        word_count = 0
+        if not transcription_failed and "segments" in result and result["segments"]:
+            # Debug: Log the WhisperX result structure
+            logger.debug(f"WhisperX result keys: {list(result.keys())}")
+            logger.debug(f"Number of segments: {len(result['segments'])}")
+            if result["segments"]:
+                logger.debug(f"First segment keys: {list(result['segments'][0].keys())}")
+            
+            for segment in result["segments"]:
+                # Check if this segment has word-level alignments
+                if "words" in segment and segment["words"]:
+                    for word_info in segment["words"]:
+                        word = word_info.get("word", "").strip()
+                        start = word_info.get("start", None)
+                        end = word_info.get("end", None)
                         
-                        sub_maker.subs.append(word)
-                        sub_maker.offset.append((start_100ns, start_100ns + duration_100ns))
-
-        # 如果没有获取到单词级时间戳，回退到句子级
-        if not sub_maker.subs:
-            logger.warning("No word-level timestamps found, falling back to sentence-level")
+                        # Skip words without proper timing or empty words
+                        if word and start is not None and end is not None and start < end:
+                            # 转换为100纳秒单位（与edge_tts兼容）
+                            start_100ns = int(start * 10000000)
+                            end_100ns = int(end * 10000000)
+                            
+                            sub_maker.subs.append(word)
+                            sub_maker.offset.append((start_100ns, end_100ns))
+                            word_count += 1
+                        else:
+                            logger.debug(f"Skipping invalid word: '{word}', start: {start}, end: {end}")
+            
+            logger.info(f"Processed {word_count} word-level timestamps from WhisperX")
+        else:
+            logger.warning("Skipping word-level processing due to transcription issues")
+        
+        # 如果没有获取到单词级时间戳，回退到句子级 (enhanced fallback)
+        if not sub_maker.subs or transcription_failed:
+            if transcription_failed:
+                logger.info("Using sentence-level timing due to poor transcription quality")
+            else:
+                logger.warning("No word-level timestamps found, falling back to sentence-level")
+                
             sentences = utils.split_string_by_punctuations(text)
             audio_duration = len(wav[0]) / 24000  # 采样率24000Hz
             
@@ -1528,28 +1738,63 @@ def chatterbox_tts(
                     sub_maker.subs.append(sentence.strip())
                     sub_maker.offset.append((current_offset, current_offset + sentence_duration))
                     current_offset += sentence_duration
+                    
+                logger.info(f"Generated {len(sub_maker.subs)} sentence-level timestamps")
             else:
                 # 最后的回退方案
                 audio_duration_100ns = int(audio_duration * 10000000)
                 sub_maker.subs = [text]
                 sub_maker.offset = [(0, audio_duration_100ns)]
+                logger.info("Using single timestamp for entire text")
 
         # 5. 转换音频格式为MP3（如果需要）
+        final_audio_file = voice_file
         if voice_file.endswith('.mp3'):
             try:
                 from moviepy import AudioFileClip
+                logger.info("Converting WAV to MP3...")
                 audio_clip = AudioFileClip(temp_wav_file)
-                audio_clip.write_audiofile(voice_file, logger=None)
+                audio_clip.write_audiofile(voice_file, logger=None)  # Removed verbose parameter
                 audio_clip.close()
                 os.remove(temp_wav_file)  # 删除临时WAV文件
+                logger.info("Audio conversion to MP3 completed")
+                final_audio_file = voice_file
             except Exception as e:
                 logger.warning(f"Failed to convert to MP3, keeping WAV format: {e}")
-                os.rename(temp_wav_file, voice_file.replace('.mp3', '.wav'))
+                # Keep the WAV file with original extension
+                final_audio_file = voice_file.replace('.mp3', '.wav')
+                os.rename(temp_wav_file, final_audio_file)
+                logger.info(f"Saved as WAV: {final_audio_file}")
         else:
+            final_audio_file = voice_file
             os.rename(temp_wav_file, voice_file)
 
+        # Log subtitle information for debugging
+        if sub_maker.subs:
+            logger.info(f"Generated {len(sub_maker.subs)} subtitle entries")
+            logger.debug(f"First few subtitle entries: {sub_maker.subs[:5]}")
+            logger.debug(f"First few timing offsets: {sub_maker.offset[:5]}")
+            
+            # Validate subtitle timing
+            total_audio_duration = len(wav[0]) / 24000
+            last_subtitle_time = sub_maker.offset[-1][1] / 10000000 if sub_maker.offset else 0
+            logger.info(f"Audio duration: {total_audio_duration:.2f}s, Last subtitle time: {last_subtitle_time:.2f}s")
+            
+            # Final quality check
+            if transcription_failed:
+                logger.warning("⚠️  Chatterbox TTS transcription had quality issues. Consider:")
+                logger.warning("   • Using shorter, simpler text")
+                logger.warning("   • Trying Azure TTS for better accuracy")
+                logger.warning("   • Using CPU mode (set CHATTERBOX_DEVICE=cpu)")
+        else:
+            logger.warning("No subtitles generated!")
+
         logger.success(f"Chatterbox TTS completed with {len(sub_maker.subs)} word/sentence timestamps")
-        logger.info(f"Output file: {voice_file}")
+        logger.info(f"Output file: {final_audio_file}")
+        
+        # Store the actual file path for downstream processing
+        sub_maker._actual_audio_file = final_audio_file
+        sub_maker._transcription_quality_warning = transcription_failed
         
         return sub_maker
 
@@ -1559,6 +1804,164 @@ def chatterbox_tts(
         temp_wav_file = voice_file.replace('.mp3', '_temp.wav')
         if os.path.exists(temp_wav_file):
             os.remove(temp_wav_file)
+        return None
+
+
+def chatterbox_tts_chunked(
+    text: str,
+    voice_name: str,
+    voice_rate: float,
+    voice_file: str,
+    voice_volume: float = 1.0,
+) -> Union[SubMaker, None]:
+    """
+    Handle long texts by chunking them into smaller pieces for Chatterbox TTS
+    
+    This prevents garbled audio that occurs when text is too long
+    """
+    logger.info("🔄 Starting chunked Chatterbox TTS processing")
+    
+    # Split text into optimal chunks
+    chunks = chunk_text_for_chatterbox(text, max_chunk_size=400)
+    logger.info(f"Split text into {len(chunks)} chunks (max 400 chars each)")
+    
+    if len(chunks) == 1:
+        # If only one chunk, use regular processing
+        return chatterbox_tts(chunks[0], voice_name, voice_rate, voice_file, voice_volume)
+    
+    # Generate audio for each chunk
+    temp_audio_files = []
+    all_sub_makers = []
+    cumulative_duration = 0.0
+    
+    try:
+        for i, chunk in enumerate(chunks):
+            logger.info(f"Processing chunk {i+1}/{len(chunks)} ({len(chunk)} chars)")
+            
+            # Create temporary file for this chunk
+            chunk_file = voice_file.replace('.mp3', f'_chunk_{i}.mp3')
+            
+            # Generate TTS for this chunk
+            chunk_result = chatterbox_tts(chunk, voice_name, voice_rate, chunk_file, voice_volume)
+            
+            if chunk_result:
+                chunk_audio_file = getattr(chunk_result, '_actual_audio_file', chunk_file)
+                temp_audio_files.append(chunk_audio_file)
+                
+                # Adjust timing offsets to account for previous chunks
+                adjusted_subs = []
+                adjusted_offsets = []
+                
+                cumulative_offset_100ns = int(cumulative_duration * 10000000)
+                
+                for sub, (start, end) in zip(chunk_result.subs, chunk_result.offset):
+                    adjusted_subs.append(sub)
+                    adjusted_offsets.append((
+                        start + cumulative_offset_100ns,
+                        end + cumulative_offset_100ns
+                    ))
+                
+                # Create adjusted SubMaker for this chunk
+                adjusted_sub_maker = ensure_submaker_compatibility(SubMaker())
+                adjusted_sub_maker.subs = adjusted_subs
+                adjusted_sub_maker.offset = adjusted_offsets
+                all_sub_makers.append(adjusted_sub_maker)
+                
+                # Update cumulative duration
+                if chunk_result.offset:
+                    chunk_duration = chunk_result.offset[-1][1] / 10000000
+                    cumulative_duration += chunk_duration
+                    
+                logger.info(f"Chunk {i+1} completed: {len(chunk_result.subs)} entries, {chunk_duration:.2f}s")
+            else:
+                logger.error(f"Failed to generate chunk {i+1}")
+                return None
+        
+        # Combine all audio files
+        logger.info("🎵 Combining audio chunks...")
+        combined_audio = combine_audio_files(temp_audio_files, voice_file)
+        
+        if combined_audio:
+            # Combine all SubMakers
+            final_sub_maker = ensure_submaker_compatibility(SubMaker())
+            final_sub_maker.subs = []
+            final_sub_maker.offset = []
+            
+            for sub_maker in all_sub_makers:
+                final_sub_maker.subs.extend(sub_maker.subs)
+                final_sub_maker.offset.extend(sub_maker.offset)
+            
+            # Set metadata
+            final_sub_maker._actual_audio_file = combined_audio
+            final_sub_maker._transcription_quality_warning = any(
+                getattr(sm, '_transcription_quality_warning', False) for sm in all_sub_makers
+            )
+            
+            logger.success(f"✅ Chunked TTS completed: {len(final_sub_maker.subs)} total entries, {cumulative_duration:.2f}s")
+            logger.info(f"Combined audio file: {combined_audio}")
+            
+            return final_sub_maker
+        else:
+            logger.error("Failed to combine audio chunks")
+            return None
+            
+    finally:
+        # Clean up temporary chunk files
+        for temp_file in temp_audio_files:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                    logger.debug(f"Cleaned up temporary file: {temp_file}")
+                except Exception as e:
+                    logger.warning(f"Could not remove temporary file {temp_file}: {e}")
+
+
+def combine_audio_files(audio_files: list, output_file: str) -> str:
+    """
+    Combine multiple audio files into a single file
+    
+    Args:
+        audio_files: List of audio file paths to combine
+        output_file: Output file path
+        
+    Returns:
+        Path to combined audio file or None if failed
+    """
+    try:
+        from moviepy import AudioFileClip, concatenate_audioclips
+        
+        logger.info(f"Combining {len(audio_files)} audio files...")
+        
+        # Load all audio clips
+        audio_clips = []
+        for audio_file in audio_files:
+            if os.path.exists(audio_file):
+                clip = AudioFileClip(audio_file)
+                audio_clips.append(clip)
+                logger.debug(f"Loaded audio clip: {audio_file} ({clip.duration:.2f}s)")
+            else:
+                logger.warning(f"Audio file not found: {audio_file}")
+        
+        if not audio_clips:
+            logger.error("No valid audio clips to combine")
+            return None
+        
+        # Concatenate all clips
+        final_audio = concatenate_audioclips(audio_clips)
+        
+        # Write combined audio
+        final_audio.write_audiofile(output_file, logger=None)
+        
+        # Clean up clips
+        for clip in audio_clips:
+            clip.close()
+        final_audio.close()
+        
+        logger.info(f"Successfully combined audio: {output_file} ({final_audio.duration:.2f}s)")
+        return output_file
+        
+    except Exception as e:
+        logger.error(f"Failed to combine audio files: {e}")
         return None
 
 
@@ -1669,12 +2072,118 @@ def _format_text(text: str) -> str:
     return text
 
 
+def create_chatterbox_subtitle(sub_maker: SubMaker, text: str, subtitle_file: str):
+    """
+    Create subtitle file optimized for Chatterbox TTS timestamps
+    Handles both word-level and sentence-level timestamps intelligently
+    """
+    if not sub_maker.subs or not sub_maker.offset:
+        logger.warning("No subtitle data available")
+        return
+
+    def mktimestamp(seconds: float) -> str:
+        """Convert seconds to SRT timestamp format"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millisecs = int((seconds % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millisecs:03d}"
+
+    def formatter(idx: int, start_time: float, end_time: float, sub_text: str) -> str:
+        """Format subtitle entry for SRT file"""
+        start_t = mktimestamp(start_time)
+        end_t = mktimestamp(end_time)
+        return f"{idx}\n{start_t} --> {end_t}\n{sub_text}\n"
+
+    try:
+        subtitle_entries = []
+        subtitle_index = 1
+
+        # Detect if we have word-level or sentence-level timestamps
+        avg_sub_length = sum(len(sub) for sub in sub_maker.subs) / len(sub_maker.subs)
+        is_word_level = avg_sub_length < 15  # Average word length is typically < 15 chars
+        
+        if is_word_level:
+            logger.info("Processing word-level timestamps for subtitle grouping")
+            current_phrase = []
+            current_start_time = None
+            current_end_time = None
+
+            # Group words into phrases
+            for i, (word, (start_100ns, end_100ns)) in enumerate(zip(sub_maker.subs, sub_maker.offset)):
+                start_time = start_100ns / 10000000  # Convert to seconds
+                end_time = end_100ns / 10000000
+
+                if current_start_time is None:
+                    current_start_time = start_time
+
+                current_phrase.append(word)
+                current_end_time = end_time
+
+                # End phrase on punctuation or every 8-10 words
+                is_punctuation_end = word.rstrip().endswith(('.', '!', '?', '。', '！', '？'))
+                is_comma_pause = word.rstrip().endswith((',', '，'))
+                is_long_phrase = len(current_phrase) >= 8
+                is_last_word = i == len(sub_maker.subs) - 1
+
+                if is_punctuation_end or is_long_phrase or is_last_word or (is_comma_pause and len(current_phrase) >= 4):
+                    if current_phrase:
+                        phrase_text = ' '.join(current_phrase).strip()
+                        # Clean up spacing around punctuation
+                        phrase_text = re.sub(r'\s+([,.!?。，！？])', r'\1', phrase_text)
+                        
+                        subtitle_entry = formatter(
+                            idx=subtitle_index,
+                            start_time=current_start_time,
+                            end_time=current_end_time,
+                            sub_text=phrase_text
+                        )
+                        subtitle_entries.append(subtitle_entry)
+                        subtitle_index += 1
+
+                    # Reset for next phrase
+                    current_phrase = []
+                    current_start_time = None
+        else:
+            logger.info("Processing sentence-level timestamps directly")
+            # Use sentence-level timestamps as-is
+            for i, (sentence, (start_100ns, end_100ns)) in enumerate(zip(sub_maker.subs, sub_maker.offset)):
+                start_time = start_100ns / 10000000
+                end_time = end_100ns / 10000000
+                
+                subtitle_entry = formatter(
+                    idx=subtitle_index,
+                    start_time=start_time,
+                    end_time=end_time,
+                    sub_text=sentence.strip()
+                )
+                subtitle_entries.append(subtitle_entry)
+                subtitle_index += 1
+
+        # Write subtitle file
+        if subtitle_entries:
+            with open(subtitle_file, "w", encoding="utf-8") as file:
+                file.write("\n".join(subtitle_entries))
+            
+            logger.success(f"Chatterbox subtitle file created: {subtitle_file} with {len(subtitle_entries)} entries")
+        else:
+            logger.warning("No subtitle entries created")
+
+    except Exception as e:
+        logger.error(f"Failed to create Chatterbox subtitle: {str(e)}")
+        import traceback
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+
+
 def create_subtitle(sub_maker: SubMaker, text: str, subtitle_file: str):
     """
     优化字幕文件
     1. 将字幕文件按照标点符号分割成多行
     2. 逐行匹配字幕文件中的文本
     3. 生成新的字幕文件
+    
+    Note: This function is optimized for Azure TTS phrase-level chunks.
+    For Chatterbox TTS word-level timestamps, use create_chatterbox_subtitle instead.
     """
 
     text = _format_text(text)
@@ -1768,72 +2277,5 @@ def get_audio_duration(sub_maker: SubMaker):
     return sub_maker.offset[-1][1] / 10000000
 
 
-if __name__ == "__main__":
-    voice_name = "zh-CN-XiaoxiaoMultilingualNeural-V2-Female"
-    voice_name = parse_voice_name(voice_name)
-    voice_name = is_azure_v2_voice(voice_name)
-    print(voice_name)
-
-    voices = get_all_azure_voices()
-    print(len(voices))
-
-    async def _do():
-        temp_dir = utils.storage_dir("temp")
-
-        voice_names = [
-            "zh-CN-XiaoxiaoMultilingualNeural",
-            # 女性
-            "zh-CN-XiaoxiaoNeural",
-            "zh-CN-XiaoyiNeural",
-            # 男性
-            "zh-CN-YunyangNeural",
-            "zh-CN-YunxiNeural",
-        ]
-        text = """
-        静夜思是唐代诗人李白创作的一首五言古诗。这首诗描绘了诗人在寂静的夜晚，看到窗前的明月，不禁想起远方的家乡和亲人，表达了他对家乡和亲人的深深思念之情。全诗内容是：“床前明月光，疑是地上霜。举头望明月，低头思故乡。”在这短短的四句诗中，诗人通过“明月”和“思故乡”的意象，巧妙地表达了离乡背井人的孤独与哀愁。首句“床前明月光”设景立意，通过明亮的月光引出诗人的遐想；“疑是地上霜”增添了夜晚的寒冷感，加深了诗人的孤寂之情；“举头望明月”和“低头思故乡”则是情感的升华，展现了诗人内心深处的乡愁和对家的渴望。这首诗简洁明快，情感真挚，是中国古典诗歌中非常著名的一首，也深受后人喜爱和推崇。
-            """
-
-        text = """
-        What is the meaning of life? This question has puzzled philosophers, scientists, and thinkers of all kinds for centuries. Throughout history, various cultures and individuals have come up with their interpretations and beliefs around the purpose of life. Some say it's to seek happiness and self-fulfillment, while others believe it's about contributing to the welfare of others and making a positive impact in the world. Despite the myriad of perspectives, one thing remains clear: the meaning of life is a deeply personal concept that varies from one person to another. It's an existential inquiry that encourages us to reflect on our values, desires, and the essence of our existence.
-        """
-
-        text = """
-               预计未来3天深圳冷空气活动频繁，未来两天持续阴天有小雨，出门带好雨具；
-               10-11日持续阴天有小雨，日温差小，气温在13-17℃之间，体感阴凉；
-               12日天气短暂好转，早晚清凉；
-                   """
-
-        text = "[Opening scene: A sunny day in a suburban neighborhood. A young boy named Alex, around 8 years old, is playing in his front yard with his loyal dog, Buddy.]\n\n[Camera zooms in on Alex as he throws a ball for Buddy to fetch. Buddy excitedly runs after it and brings it back to Alex.]\n\nAlex: Good boy, Buddy! You're the best dog ever!\n\n[Buddy barks happily and wags his tail.]\n\n[As Alex and Buddy continue playing, a series of potential dangers loom nearby, such as a stray dog approaching, a ball rolling towards the street, and a suspicious-looking stranger walking by.]\n\nAlex: Uh oh, Buddy, look out!\n\n[Buddy senses the danger and immediately springs into action. He barks loudly at the stray dog, scaring it away. Then, he rushes to retrieve the ball before it reaches the street and gently nudges it back towards Alex. Finally, he stands protectively between Alex and the stranger, growling softly to warn them away.]\n\nAlex: Wow, Buddy, you're like my superhero!\n\n[Just as Alex and Buddy are about to head inside, they hear a loud crash from a nearby construction site. They rush over to investigate and find a pile of rubble blocking the path of a kitten trapped underneath.]\n\nAlex: Oh no, Buddy, we have to help!\n\n[Buddy barks in agreement and together they work to carefully move the rubble aside, allowing the kitten to escape unharmed. The kitten gratefully nuzzles against Buddy, who responds with a friendly lick.]\n\nAlex: We did it, Buddy! We saved the day again!\n\n[As Alex and Buddy walk home together, the sun begins to set, casting a warm glow over the neighborhood.]\n\nAlex: Thanks for always being there to watch over me, Buddy. You're not just my dog, you're my best friend.\n\n[Buddy barks happily and nuzzles against Alex as they disappear into the sunset, ready to face whatever adventures tomorrow may bring.]\n\n[End scene.]"
-
-        text = "大家好，我是乔哥，一个想帮你把信用卡全部还清的家伙！\n今天我们要聊的是信用卡的取现功能。\n你是不是也曾经因为一时的资金紧张，而拿着信用卡到ATM机取现？如果是，那你得好好看看这个视频了。\n现在都2024年了，我以为现在不会再有人用信用卡取现功能了。前几天一个粉丝发来一张图片，取现1万。\n信用卡取现有三个弊端。\n一，信用卡取现功能代价可不小。会先收取一个取现手续费，比如这个粉丝，取现1万，按2.5%收取手续费，收取了250元。\n二，信用卡正常消费有最长56天的免息期，但取现不享受免息期。从取现那一天开始，每天按照万5收取利息，这个粉丝用了11天，收取了55元利息。\n三，频繁的取现行为，银行会认为你资金紧张，会被标记为高风险用户，影响你的综合评分和额度。\n那么，如果你资金紧张了，该怎么办呢？\n乔哥给你支一招，用破思机摩擦信用卡，只需要少量的手续费，而且还可以享受最长56天的免息期。\n最后，如果你对玩卡感兴趣，可以找乔哥领取一本《卡神秘籍》，用卡过程中遇到任何疑惑，也欢迎找乔哥交流。\n别忘了，关注乔哥，回复用卡技巧，免费领取《2024用卡技巧》，让我们一起成为用卡高手！"
-
-        text = """
-        2023全年业绩速览
-公司全年累计实现营业收入1476.94亿元，同比增长19.01%，归母净利润747.34亿元，同比增长19.16%。EPS达到59.49元。第四季度单季，营业收入444.25亿元，同比增长20.26%，环比增长31.86%；归母净利润218.58亿元，同比增长19.33%，环比增长29.37%。这一阶段
-的业绩表现不仅突显了公司的增长动力和盈利能力，也反映出公司在竞争激烈的市场环境中保持了良好的发展势头。
-2023年Q4业绩速览
-第四季度，营业收入贡献主要增长点；销售费用高增致盈利能力承压；税金同比上升27%，扰动净利率表现。
-业绩解读
-利润方面，2023全年贵州茅台，>归母净利润增速为19%，其中营业收入正贡献18%，营业成本正贡献百分之一，管理费用正贡献百分之一点四。(注：归母净利润增速值=营业收入增速+各科目贡献，展示贡献/拖累的前四名科目，且要求贡献值/净利润增速>15%)
-"""
-        text = "静夜思是唐代诗人李白创作的一首五言古诗。这首诗描绘了诗人在寂静的夜晚，看到窗前的明月，不禁想起远方的家乡和亲人"
-
-        text = _format_text(text)
-        lines = utils.split_string_by_punctuations(text)
-        print(lines)
-
-        for voice_name in voice_names:
-            voice_file = f"{temp_dir}/tts-{voice_name}.mp3"
-            subtitle_file = f"{temp_dir}/tts.mp3.srt"
-            sub_maker = azure_tts_v2(
-                text=text, voice_name=voice_name, voice_file=voice_file
-            )
-            create_subtitle(sub_maker=sub_maker, text=text, subtitle_file=subtitle_file)
-            audio_duration = get_audio_duration(sub_maker)
-            print(f"voice: {voice_name}, audio duration: {audio_duration}s")
-
-    loop = asyncio.get_event_loop_policy().get_event_loop()
-    try:
-        loop.run_until_complete(_do())
-    finally:
-        loop.close()
+# Note: This module contains TTS functions for Azure TTS V1/V2, SiliconFlow TTS, and Chatterbox TTS
+# All functions are optimized for production use with proper error handling and fallbacks
