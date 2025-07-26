@@ -1544,8 +1544,10 @@ def chatterbox_tts(
     original_text = text
     text = preprocess_text_for_chatterbox(text)
     
-    # Check if text needs chunking (automatic for texts > 600 chars)
-    if len(text) > 600:
+    # Check if text needs chunking (configurable threshold via CHATTERBOX_CHUNK_THRESHOLD)
+    # Higher threshold reduces chunking frequency which can affect speech pacing
+    chunk_threshold = int(os.environ.get("CHATTERBOX_CHUNK_THRESHOLD", "800"))
+    if len(text) > chunk_threshold:
         logger.warning(f"Text is too long ({len(text)} chars) for single-pass Chatterbox TTS")
         logger.info("Automatically chunking text for better quality...")
         return chatterbox_tts_chunked(text, voice_name, voice_rate, voice_file, voice_volume)
@@ -1610,8 +1612,10 @@ def chatterbox_tts(
                 logger.warning(f"Reference audio not found for {voice_base_name}, using default voice")
 
         # 生成语音 (with improved pacing control)
-        # Lower cfg_weight to around 0.3 for slower, more natural pacing
-        cfg_weight = 0.3  # Slower pacing as recommended in Chatterbox docs
+        # Lower cfg_weight for slower, more natural pacing
+        # Environment variable CHATTERBOX_CFG_WEIGHT can override (default 0.2 for very slow speech)
+        cfg_weight = float(os.environ.get("CHATTERBOX_CFG_WEIGHT", "0.2"))
+        logger.info(f"Using cfg_weight={cfg_weight} for speech pacing control")
         
         if audio_prompt_path:
             wav = chatterbox_model.generate(text, audio_prompt_path=audio_prompt_path, cfg_weight=cfg_weight)

@@ -981,14 +981,7 @@ with middle_panel:
                     else:
                         st.info("No reference audio files found. Add .wav, .mp3, .flac, or .m4a files for voice cloning.")
             
-            # 性能提示
-            with st.expander("⚡ Performance Info", expanded=False):
-                st.info("**Chatterbox TTS Features:**")
-                st.write("• 🚀 **Open Source**: No API costs or limits")
-                st.write("• 🎯 **Precise Timestamps**: WhisperX for word-level accuracy")
-                st.write("• 🎭 **Voice Cloning**: Clone any voice with reference audio")
-                st.write("• 💻 **Local Processing**: No internet required after setup")
-                st.write("• 🔄 **First Run**: Downloads models (~1-2GB)")
+
 
         # 只有在有声音可选时才显示试听按钮
         if friendly_names and st.button(tr("Play Voice")):

@@ -23,4 +23,14 @@ export CUDNN_LOGINFO_DBG="0"  # Suppress cuDNN debug info
 # Suppress warnings
 export PYTHONWARNINGS="ignore::UserWarning:streamlit"
 
-echo "🚀 CUDA environment configured for MoneyPrinterTurbo" 
+# Chatterbox TTS Configuration
+# Lower cfg_weight = slower speech (default: 0.2 for slow speech)
+# You can set CHATTERBOX_CFG_WEIGHT=0.1 for very slow speech or 0.3 for normal speed
+export CHATTERBOX_CFG_WEIGHT="${CHATTERBOX_CFG_WEIGHT:-0.2}"
+
+# Chatterbox chunking threshold (default: 800 chars)
+# Higher values = less chunking = more consistent pacing
+export CHATTERBOX_CHUNK_THRESHOLD="${CHATTERBOX_CHUNK_THRESHOLD:-800}"
+
+echo "🚀 CUDA environment configured for MoneyPrinterTurbo"
+echo "🎤 Chatterbox TTS: cfg_weight=$CHATTERBOX_CFG_WEIGHT, chunk_threshold=$CHATTERBOX_CHUNK_THRESHOLD" 
