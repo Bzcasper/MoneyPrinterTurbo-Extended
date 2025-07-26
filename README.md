@@ -36,7 +36,7 @@ This fork includes **Chatterbox TTS** - a completely free alternative to Azure T
 - **GPU support**: Faster processing on compatible hardware, falls back to CPU automatically
 
 **How it works:**
-1. Add reference audio files to the `reference_audio/` folder
+1. [Optional] Add reference audio files to the `reference_audio/` folder
 2. Select "Chatterbox TTS" in the web interface
 3. Choose your cloned voice or use the default voice
 4. Generate videos with your custom voice
@@ -44,6 +44,9 @@ This fork includes **Chatterbox TTS** - a completely free alternative to Azure T
 ## Installation
 
 **Quick Start (Recommended):**
+
+**Installation:**
+
 ```bash
 # 1. Clone and setup
 git clone https://github.com/harry0703/MoneyPrinterTurbo.git
@@ -55,128 +58,20 @@ conda activate MoneyPrinterTurbo
 git clone https://github.com/resemble-ai/chatterbox.git
 cd chatterbox && pip install -e . && cd ..
 
-# 3. Run the application
-./webui.sh
+## For Cuda specific (if needed)
+source ./setup_cuda_env.sh    
 ```
 
-**🚀 Usage:**
+**Usage:**
 ```bash
 # Web Interface (Recommended)
-./webui.sh                    # Linux/MacOS with CUDA setup
-webui.bat                     # Windows with CUDA setup
-
-# API Server
-./api.sh                      # Linux/MacOS API server with CUDA
-python main.py                # Direct API (missing CUDA environment)
-
-# Manual Environment Setup (if needed)
-source ./setup_cuda_env.sh    # Load CUDA libraries manually
+./webui.sh            
 ```
 
 The web interface opens at `http://localhost:8501`
 
-**Alternative Installation Methods:**
 
-**Method 1: Complete Conda Environment (Recommended)**
-```bash
-conda env create -f environment.yml
-conda activate MoneyPrinterTurbo
-./webui.sh
-```
-
-**Method 2: Manual CUDA Installation**
-```bash
-# Create basic environment
-conda create -n MoneyPrinterTurbo python=3.11
-conda activate MoneyPrinterTurbo
-
-# Install all CUDA libraries
-./install_cuda.sh
-```
-
-**Method 3: Pip-only Installation (Advanced)**
-```bash
-pip install -r requirements.txt
-pip install -r requirements-cuda.txt
-pip install nvidia-cudnn-cu12==8.9.2.26 --force-reinstall --no-deps
-```
-
-## CUDA/GPU Support
-
-This project includes **complete CUDA 12.x support** with extensive GPU acceleration:
-
-**🔧 CUDA Libraries Included (17 packages):**
-- **PyTorch Ecosystem**: `torch`, `torchaudio`, `torchvision`, `pytorch-lightning`
-- **CUDA Core**: `cuda-nvrtc`, `cuda-version`, `nvidia-cuda-runtime-cu12`
-- **cuDNN**: Dual installation - cuDNN 9.x (primary) + cuDNN 8.x (compatibility)
-- **NVIDIA Libraries**: `cublas`, `cufft`, `curand`, `cusolver`, `cusparse`, `nccl`, `nvtx`
-- **GPU Acceleration**: Automatic GPU detection with CPU fallback
-
-**📦 Installation Options:**
-1. **Automatic**: Use `conda env create -f environment.yml` (includes everything)
-2. **Manual**: Run `./install_cuda.sh` for step-by-step installation
-3. **Custom**: Use `requirements-cuda.txt` for pip-only setup
-- Chatterbox TTS with GPU acceleration
-- WhisperX with CUDA support for faster transcription
-- Automatic environment setup via `setup_cuda_env.sh`
-- Cross-platform CUDA library path management
-
-## Features
-
-## Chatterbox TTS Setup
-
-**Note**: Chatterbox TTS requires git-based installation (see Installation section above).
-
-### Basic Usage
-1. Go to "Audio Settings" in the web interface
-2. Select "Chatterbox TTS (Open Source)" from the dropdown
-3. Choose "Default Voice" for the built-in voice
-
-### Voice Cloning
-1. Create the reference audio folder: `mkdir reference_audio`
-2. Add audio files (.wav, .mp3, .flac, .m4a) to this folder
-3. Use 10-60 seconds of clear, single-speaker audio
-4. File names become voice names (e.g., `narrator.wav` becomes "narrator" voice)
-5. Restart the web interface to see new voices
-
-**Example folder structure:**
-```
-reference_audio/
-├── narrator.wav        # Professional narrator
-├── british.mp3         # British accent
-└── casual.flac         # Casual style
-```
-
-### Performance Options
-
-**Default (CPU mode)** - Compatible with all systems:
-```bash
-./webui.sh
-```
-
-**GPU mode** - 3-5x faster on compatible systems:
-```bash
-export CHATTERBOX_DEVICE=cuda
-./webui.sh
-```
-
-**Notes:**
-- First run downloads ~1-2GB of models
-- CPU mode is slower but works everywhere
-- GPU mode requires compatible CUDA setup
-- System automatically falls back to CPU if GPU fails
-
-## TTS Comparison
-
-| Feature | Azure TTS | SiliconFlow | Chatterbox TTS |
-|---------|-----------|-------------|----------------|
-| Cost | Paid API | Paid API | Free |
-| Internet | Required | Required | Local only |
-| Voice Cloning | No | No | Yes |
-| Word Timing | Good | Basic | Superior |
-| Rate Limits | Yes | Yes | None |
-
-## Troubleshooting
+## Troubleshooting:[Optional]
 
 **Chatterbox TTS issues:**
 - **Garbled audio**: See `CHATTERBOX_TTS_GUIDE.md` for detailed solutions
@@ -211,4 +106,4 @@ If you encounter CUDA library issues, the startup scripts automatically:
 
 ## Original Project
 
-This enhanced fork maintains full compatibility with the original MoneyPrinterTurbo while adding these new features. Check out the [original repository](https://github.com/harry0703/MoneyPrinterTurbo) for the base project documentation and additional features.
+This fork maintains full compatibility with the original MoneyPrinterTurbo while adding new features. Check out the [original repository](https://github.com/harry0703/MoneyPrinterTurbo) for the base project documentation and additional features.
