@@ -1465,7 +1465,7 @@ def preprocess_text_for_chatterbox(text: str) -> str:
     return text
 
 
-def chunk_text_for_chatterbox(text: str, max_chunk_size: int = 500) -> list:
+def chunk_text_for_chatterbox(text: str, max_chunk_size: int = 300) -> list:
     """
     Split text into optimal chunks for Chatterbox TTS processing
     
@@ -1546,7 +1546,7 @@ def chatterbox_tts(
     
     # Check if text needs chunking (configurable threshold via CHATTERBOX_CHUNK_THRESHOLD)
     # Higher threshold reduces chunking frequency which can affect speech pacing
-    chunk_threshold = int(os.environ.get("CHATTERBOX_CHUNK_THRESHOLD", "800"))
+    chunk_threshold = int(os.environ.get("CHATTERBOX_CHUNK_THRESHOLD", "600"))
     if len(text) > chunk_threshold:
         logger.warning(f"Text is too long ({len(text)} chars) for single-pass Chatterbox TTS")
         logger.info("Automatically chunking text for better quality...")
@@ -1826,8 +1826,8 @@ def chatterbox_tts_chunked(
     logger.info("🔄 Starting chunked Chatterbox TTS processing")
     
     # Split text into optimal chunks
-    chunks = chunk_text_for_chatterbox(text, max_chunk_size=400)
-    logger.info(f"Split text into {len(chunks)} chunks (max 400 chars each)")
+    chunks = chunk_text_for_chatterbox(text, max_chunk_size=300)
+    logger.info(f"Split text into {len(chunks)} chunks (max 300 chars each)")
     
     if len(chunks) == 1:
         # If only one chunk, use regular processing
