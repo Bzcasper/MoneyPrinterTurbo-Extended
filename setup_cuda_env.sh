@@ -8,12 +8,42 @@ if [[ -n "$CONDA_PREFIX" ]]; then
     CUDNN_PATH="$CONDA_PREFIX/lib/python3.11/site-packages/nvidia/cudnn/lib"
     if [[ -d "$CUDNN_PATH" ]]; then
         export LD_LIBRARY_PATH="$CUDNN_PATH:$LD_LIBRARY_PATH"
-        echo "✅ Added cuDNN library path: $CUDNN_PATH"
+        echo "✅ Added cuDNN library path (conda): $CUDNN_PATH"
     else
-        echo "⚠️  cuDNN library path not found: $CUDNN_PATH"
+        echo "⚠️  cuDNN library path not found under CONDA_PREFIX: $CUDNN_PATH"
     fi
 else
-    echo "⚠️  CONDA_PREFIX not set, skipping cuDNN path setup"
+    # Try Python-based discovery (works for venv/pip installs of nvidia-cudnn-cu12)
+    PY_DISCOVERED_CUDNN_PATH="$(python - <<'PY'
+import os
+try:
+    import nvidia.cudnn as m
+    p = os.path.join(os.path.dirname(m.__file__), 'lib')
+    if os.path.isdir(p):
+        print(p)
+except Exception:
+    pass
+PY
+)"
+    if [[ -n "$PY_DISCOVERED_CUDNN_PATH" && -d "$PY_DISCOVERED_CUDNN_PATH" ]]; then
+        export LD_LIBRARY_PATH="$PY_DISCOVERED_CUDNN_PATH:$LD_LIBRARY_PATH"
+        echo "✅ Added cuDNN library path (auto-detected): $PY_DISCOVERED_CUDNN_PATH"
+    else
+        # Try VIRTUAL_ENV conventional location as a fallback
+        if [[ -n "$VIRTUAL_ENV" ]]; then
+            CUDNN_PATH_VENV="$VIRTUAL_ENV/lib/python*/site-packages/nvidia/cudnn/lib"
+            # Expand possible glob
+            CUDNN_PATH_EXPANDED=( $CUDNN_PATH_VENV )
+            if [[ -d "${CUDNN_PATH_EXPANDED[0]}" ]]; then
+                export LD_LIBRARY_PATH="${CUDNN_PATH_EXPANDED[0]}:$LD_LIBRARY_PATH"
+                echo "✅ Added cuDNN library path (venv): ${CUDNN_PATH_EXPANDED[0]}"
+            else
+                echo "⚠️  cuDNN library path not found under VIRTUAL_ENV"
+            fi
+        else
+            echo "⚠️  Could not auto-detect cuDNN path (no CONDA_PREFIX, no VIRTUAL_ENV, and Python check failed)"
+        fi
+    fi
 fi
 
 # Set optimal CUDA environment variables

@@ -1,0 +1,143 @@
+# ARM64 Optimized Dockerfile for MoneyPrinter Turbo
+# Based on Ubuntu 24.04 ARM64 with resource optimization
+
+FROM ubuntu:24.04
+
+# Set environment variables for ARM64 optimization
+ENV PYTHONPATH="/MoneyPrinterTurbo"
+ENV DEBIAN_FRONTEND=noninteractive
+ENV OMP_NUM_THREADS=2
+ENV PYTORCH_NUM_THREADS=2
+ENV NUMBA_NUM_THREADS=2
+ENV CHATTERBOX_DEVICE=cpu
+ENV CUDA_VISIBLE_DEVICES=""
+
+# Set the working directory
+WORKDIR /MoneyPrinterTurbo
+
+# Set directory permissions
+RUN chmod 777 /MoneyPrinterTurbo
+
+# Update system and install dependencies optimized for ARM64
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    git \
+    curl \
+    wget \
+    imagemagick \
+    ffmpeg \
+    libmagick++-dev \
+    libffi-dev \
+    libssl-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libsndfile1-dev \
+    libsox-dev \
+    portaudio19-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Fix security policy for ImageMagick
+RUN sed -i "/<policy domain=\"path\" rights=\"none\" pattern=\"@\*\"/d" /etc/ImageMagick-6/policy.xml
+
+# Upgrade pip and install wheel
+RUN python3 -m pip install --upgrade pip wheel setuptools
+
+# Copy requirements first for better caching
+COPY requirements.txt ./
+
+# Create ARM64-specific requirements
+RUN cat > requirements-arm64.txt << "EOFR"
+# Core dependencies optimized for ARM64
+moviepy==2.1.2
+streamlit==1.45.0
+fastapi==0.115.6
+uvicorn==0.32.1
+loguru==0.7.3
+redis==5.2.0
+python-multipart==0.0.19
+pyyaml
+requests>=2.31.0
+
+# ML libraries with ARM64 support
+scikit-learn>=1.3.0
+pillow>=9.0.0
+numpy<2.0.0
+pandas>=1.5.0
+
+# Audio processing (ARM64 compatible versions)
+librosa>=0.10.0
+soundfile>=0.12.1
+audioread>=3.0.0
+
+# TTS alternatives for ARM64
+pyttsx3>=2.90
+gTTS>=2.3.0
+
+# Whisper alternatives
+openai-whisper>=20231117
+
+# Transformers with CPU optimization
+transformers>=4.21.0
+torch>=1.12.0,<2.0.0
+torchaudio>=0.12.0,<2.0.0
+sentence-transformers>=2.2.0
+
+# Additional dependencies
+edge_tts==6.1.19
+python-dotenv>=1.0.0
+EOFR
+
+# Install ARM64 optimized dependencies
+RUN pip install --no-cache-dir -r requirements-arm64.txt
+
+# Install additional TTS engines for ARM64
+RUN pip install --no-cache-dir \
+    espeak-ng \
+    festival \
+    flite
+
+# Copy the application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /MoneyPrinterTurbo/storage \
+    && mkdir -p /MoneyPrinterTurbo/logs \
+    && mkdir -p /MoneyPrinterTurbo/temp
+
+# Create a startup script
+RUN cat > /MoneyPrinterTurbo/start.sh << "STARTEOF"
+#\!/bin/bash
+echo "Starting MoneyPrinter Turbo ARM64..."
+echo "System Info:"
+echo "  Architecture: $(uname -m)"
+echo "  CPU Cores: $(nproc)"
+echo "  Memory: $(free -h | grep Mem | awk {print })"
+echo "  Python: $(python3 --version)"
+
+# Set resource limits
+ulimit -v 2097152  # 2GB virtual memory limit
+ulimit -m 1048576  # 1GB resident memory limit
+
+# Start the application with resource monitoring
+exec "$@"
+STARTEOF
+
+RUN chmod +x /MoneyPrinterTurbo/start.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+
+# Expose ports
+EXPOSE 8501 8080
+
+# Set the startup script as entrypoint
+ENTRYPOINT ["/MoneyPrinterTurbo/start.sh"]
+
+# Default command
+CMD ["streamlit", "run", "./webui/Main.py", "--browser.serverAddress=0.0.0.0", "--server.enableCORS=True", "--browser.gatherUsageStats=False"]
